@@ -1,0 +1,89 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: llama-2-7b-hf-v2
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: llama-2-7b-hf-v2
+  template:
+    metadata:
+      labels:
+        app: llama-2-7b-hf-v2
+    spec:
+      serviceAccountName: llm-sa
+      nodeSelector:
+        iam.gke.io/gke-metadata-server-enabled: "true"
+        cloud.google.com/gke-accelerator: nvidia-tesla-t4
+      volumes:
+        - name: model-storage
+          ephemeral:
+            volumeClaimTemplate:
+              spec:
+                accessModes: [ "ReadWriteOnce" ]
+                storageClassName: "ssd"
+                resources:
+                  requests:
+                    storage: 64Gi
+      initContainers:
+        - name: init
+          image: google/cloud-sdk:slim
+          command: ["sh", "-c", "gcloud alpha storage cp -r gs://ps-llm-collection/llm/llama-2-7b-hf-v2 /data"]
+          volumeMounts:
+            - name: model-storage
+              mountPath: /data
+          resources:
+            requests:
+              cpu: 7.0
+      containers:
+      - name: model
+        image: ghcr.io/huggingface/text-generation-inference:latest
+        command: ["text-generation-launcher", "--model-id", "meta-llama/Llama-2-7b-chat-hf", "--quantize", "bitsandbytes", "--num-shard", "1", "--huggingface-hub-cache", "/usr/src/llama-2-7b-hf-v2", "--weights-cache-override", "/usr/src/llama-2-7b-hf-v2"]
+        env:
+          - name: HUGGINGFACE_OFFLINE
+            value: "1"
+          - name: PORT
+            value: "8080"
+          - name: HUGGING_FACE_HUB_TOKEN
+            value: <PLACE_YOUR_TOKEN>
+        volumeMounts:
+          - name: model-storage
+            mountPath: /usr/src/
+        resources:
+          requests:
+            cpu: 7.0
+            memory: 32Gi
+          limits:
+            nvidia.com/gpu: 1
+        ports:
+          - containerPort: 8080
+
+--- 
+apiVersion: v1
+kind: Service
+metadata:
+  name: llama-2-7b-hf-v2-service
+spec:
+  selector:
+    app: llama-2-7b-hf-v2
+  type: ClusterIP
+  ports:
+    - name: http
+      port: 8080
+      targetPort: 8080
+
+--- 
+# External service
+apiVersion: "v1"
+kind: "Service"
+metadata:
+  name: llama-2-7b-hf-v2-service-lb
+spec:
+  ports:
+  - protocol: "TCP"
+    port: 80
+    targetPort: 8080
+  selector:
+    app: llama-2-7b-hf-v2
+  type: LoadBalancer

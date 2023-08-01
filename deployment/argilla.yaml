@@ -1,0 +1,34 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: argilla
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: argilla
+  template:
+    metadata:
+      labels:
+        app: argilla
+    spec:
+      containers:
+      - name: argilla
+        image: argilla/argilla-quickstart:latest
+        ports:
+          - containerPort: 6900
+
+--- 
+# External service
+apiVersion: "v1"
+kind: "Service"
+metadata:
+  name: argilla-service
+spec:
+  ports:
+  - protocol: "TCP"
+    port: 80
+    targetPort: 6900
+  selector:
+    app: argilla
+  type: LoadBalancer
